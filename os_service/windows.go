@@ -1,6 +1,4 @@
-// +build windows
-
-package main
+package os_service
 
 import (
 	"fmt"
@@ -15,7 +13,10 @@ func InstallWindowsService() error {
 	if err != nil {
 		return err
 	}
-	usr, _ := user.Current()
+	_, err = user.Current()
+	if err != nil {
+		return fmt.Errorf("get user failed: %v", err)
+	}
 	serviceName := "TunnelManager"
 	cmd := exec.Command("nssm", "install", serviceName, execPath, "start")
 	cmd.Stdout = os.Stdout

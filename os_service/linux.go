@@ -1,6 +1,4 @@
-// +build linux
-
-package main
+package os_service
 
 import (
 	"fmt"
@@ -8,7 +6,6 @@ import (
 	"os/exec"
 )
 
-// InstallSystemdService creates a systemd service file for tunnel-manager and enables it
 func InstallSystemdService() error {
 	service := `[Unit]
 Description=Tunnel Manager Service
@@ -47,8 +44,8 @@ WantedBy=multi-user.target
 	// Reload systemd and enable service
 	cmds := [][]string{
 		{"systemctl", "daemon-reload"},
-		{"systemctl", "enable", "tunnel-manager"},
-		{"systemctl", "start", "tunnel-manager"},
+		{"systemctl", "enable", ServiceName},
+		{"systemctl", "start", ServiceName},
 	}
 	for _, args := range cmds {
 		cmd := exec.Command(args[0], args[1:]...)
@@ -64,8 +61,8 @@ WantedBy=multi-user.target
 // UninstallSystemdService disables and removes the systemd service
 func UninstallSystemdService() error {
 	cmds := [][]string{
-		{"systemctl", "stop", "tunnel-manager"},
-		{"systemctl", "disable", "tunnel-manager"},
+		{"systemctl", "stop", ServiceName},
+		{"systemctl", "disable", ServiceName},
 	}
 	for _, args := range cmds {
 		cmd := exec.Command(args[0], args[1:]...)

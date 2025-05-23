@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/Rhyanz46/tunneling/os_service"
 	"io"
 	"log"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -351,12 +353,12 @@ func (tm *TunnelManager) Stop() {
 
 func getConfigPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".tunnel-manager", "config.json")
+	return filepath.Join(home, "."+os_service.ServiceName, "config.json")
 }
 
 func getPidFilePath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".tunnel-manager", "tunnel-manager.pid")
+	return filepath.Join(home, "."+os_service.ServiceName, "tunnel-manager.pid")
 }
 
 func writePidFile(pid int) error {
@@ -380,6 +382,52 @@ func readPidFile() (int, error) {
 func removePidFile() {
 	pidFile := getPidFilePath()
 	os.Remove(pidFile)
+}
+
+func InstallSystemService() error {
+	switch {
+	case isLinux():
+		return os_service.InstallSystemdService()
+	case isDarwin():
+		return os_service.InstallLaunchdPlist()
+	case isWindows():
+		return os_service.InstallWindowsService()
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
+}
+
+func UninstallSystemService() error {
+	switch {
+	case isLinux():
+		return os_service.UninstallSystemdService()
+	case isDarwin():
+		return os_service.UninstallLaunchdPlist()
+	case isWindows():
+		return os_service.UninstallWindowsService()
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
+}
+
+func isLinux() bool {
+	return runtime.GOOS == "linux"
+}
+
+func isDarwin() bool {
+	return runtime.GOOS == "darwin"
+}
+
+func isWindows() bool {
+	return runtime.GOOS == "windows"
+}
+
+// StatusSystemdService checks the status of the systemd service
+func StatusSystemdService() error {
+	cmd := exec.Command("systemctl", "status", "tunnel-manager")
+	cmd.Stdout = exec.Command("cat").Stdout // Forward output to terminal
+	cmd.Stderr = exec.Command("cat").Stderr
+	return cmd.Run()
 }
 
 func main() {
@@ -622,16 +670,16 @@ func main() {
 		return
 
 	case "install-service":
-		// if err := InstallSystemdService(); err != nil {
-		// 	log.Fatalf("Failed to install systemd service: %v", err)
-		// }
-		fmt.Println("✅ tunnel-manager systemd service installed and started.")
+		if err := InstallSystemService(); err != nil {
+			log.Fatalf("Failed to install system service: %v", err)
+		}
+		fmt.Println("✅ tunnel-manager system service installed and started.")
 		return
 	case "uninstall-service":
-		// if err := UninstallSystemdService(); err != nil {
-		// 	log.Fatalf("Failed to uninstall systemd service: %v", err)
-		// }
-		fmt.Println("✅ tunnel-manager systemd service uninstalled.")
+		if err := UninstallSystemService(); err != nil {
+			log.Fatalf("Failed to uninstall system service: %v", err)
+		}
+		fmt.Println("✅ tunnel-manager system service uninstalled.")
 		return
 
 	default:

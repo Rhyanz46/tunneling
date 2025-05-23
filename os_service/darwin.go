@@ -1,6 +1,4 @@
-// +build darwin
-
-package main
+package os_service
 
 import (
 	"fmt"

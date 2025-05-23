@@ -1,4 +1,5 @@
 # tunnel-manager
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 Tunnel Manager adalah CLI tool berbasis Go untuk mengelola SSH tunnel ke VPS secara mudah dan aman. Fitur utama:
 - Setup otomatis SSH key ke server (tanpa perlu copy manual)
