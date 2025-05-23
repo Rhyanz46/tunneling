@@ -357,6 +357,7 @@ func main() {
 		fmt.Println("  tunnel-manager remove <name>      - Remove a tunnel")
 		fmt.Println("  tunnel-manager list               - List all tunnels")
 		fmt.Println("  tunnel-manager status             - Show connection status")
+		fmt.Println("  tunnel-manager set-config --host <VPS_IP> --user <USER> --rsa <KEY_PATH> --ssh-port <PORT>")
 		return
 	}
 
@@ -430,6 +431,55 @@ func main() {
 			fmt.Printf("✅ Connection status: Connected to %s\n", tm.config.VPSHost)
 			tm.client.Close()
 		}
+
+	case "set-config":
+		// Default values
+		host := ""
+		user := ""
+		rsa := ""
+		sshPort := 22
+
+		// Parse flags
+		for i := 2; i < len(os.Args); i++ {
+			if os.Args[i] == "--host" && i+1 < len(os.Args) {
+				host = os.Args[i+1]
+				i++
+			} else if os.Args[i] == "--user" && i+1 < len(os.Args) {
+				user = os.Args[i+1]
+				i++
+			} else if os.Args[i] == "--rsa" && i+1 < len(os.Args) {
+				rsa = os.Args[i+1]
+				i++
+			} else if os.Args[i] == "--ssh-port" && i+1 < len(os.Args) {
+				p, err := strconv.Atoi(os.Args[i+1])
+				if err == nil {
+					sshPort = p
+				}
+				i++
+			}
+		}
+
+		if host == "" || user == "" || rsa == "" {
+			log.Fatal("Usage: tunnel-manager set-config --host <VPS_IP> --user <USER> --rsa <KEY_PATH> --ssh-port <PORT>")
+		}
+
+		configPath := getConfigPath()
+		config, err := loadConfig(configPath)
+		if err != nil {
+			log.Fatal("Failed to load config:", err)
+		}
+
+		config.VPSHost = host
+		config.VPSUser = user
+		config.KeyFile = rsa
+		config.VPSPort = sshPort
+
+		if err := saveConfig(configPath, config); err != nil {
+			log.Fatal("Failed to save config:", err)
+		}
+
+		fmt.Println("✅ Config updated successfully.")
+		return
 
 	default:
 		log.Fatal("Unknown command:", command)
