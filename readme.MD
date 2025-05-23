@@ -1,3 +1,11 @@
+# tunnel-manager
+
+Tunnel Manager adalah CLI tool berbasis Go untuk mengelola SSH tunnel ke VPS secara mudah dan aman. Fitur utama:
+- Setup otomatis SSH key ke server (tanpa perlu copy manual)
+- Manajemen multi tunnel (add, remove, list)
+- Koneksi aman ke VPS tanpa password setelah login pertama
+- Instalasi dan penggunaan mudah di Linux, macOS, dan Windows
+
 ## installation
 
 ```
@@ -24,15 +32,17 @@ Usage:
   tunnel-manager remove <name>      - Remove a tunnel
   tunnel-manager list               - List all tunnels
   tunnel-manager status             - Show connection status
-  tunnel-manager set-config --host <VPS_IP> --user <USER> --rsa <KEY_PATH> --ssh-port <PORT>
+  tunnel-manager login              - Login and setup SSH key authentication
+```
+
+### login dan setup SSH key
+```
+$ tunnel-manager login
+# Masukkan host, username, password, dan port saat diminta.
+# Jika berhasil, SSH key akan otomatis dibuat dan diupload ke server.
 ```
 
 ### add tunnel
 ```
 $ tunnel-manager add docker-daemon 2375 2375 "docker daemon"
-```
-
-### set config
-```
-$ tunnel-manager set-config --host 1.2.3.4 --user myuser --rsa ~/.ssh/id_rsa --ssh-port 22
 ```
