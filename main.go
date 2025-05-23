@@ -393,6 +393,8 @@ func main() {
 		fmt.Println("  tunnel-manager list               - List all tunnels")
 		fmt.Println("  tunnel-manager status             - Show connection status")
 		fmt.Println("  tunnel-manager login              - Login and setup SSH key authentication")
+		fmt.Println("  tunnel-manager install-service    - Install systemd service")
+		fmt.Println("  tunnel-manager uninstall-service  - Uninstall systemd service")
 		return
 	}
 
@@ -617,6 +619,19 @@ func main() {
 			log.Fatal("Failed to save config:", err)
 		}
 		fmt.Println("✅ Login and SSH key setup complete. You can now use 'tunnel-manager start'.")
+		return
+
+	case "install-service":
+		if err := InstallSystemdService(); err != nil {
+			log.Fatalf("Failed to install systemd service: %v", err)
+		}
+		fmt.Println("✅ tunnel-manager systemd service installed and started.")
+		return
+	case "uninstall-service":
+		if err := UninstallSystemdService(); err != nil {
+			log.Fatalf("Failed to uninstall systemd service: %v", err)
+		}
+		fmt.Println("✅ tunnel-manager systemd service uninstalled.")
 		return
 
 	default:
