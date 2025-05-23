@@ -3,30 +3,12 @@
 ```
 git clone https://github.com/Rhyanz46/tunneling.git
 cd tunneling
-go mod download
-go build -o tunnel-manager main.go
+make install
 ```
 
-you can link this to your bin folder
-### linux
-```shell
-sudo ln -s $(pwd)/tunnel-manager /usr/local/bin/tunnel-manager
-```
-
-### mac
-```shell
-sudo ln -s $(pwd)/tunnel-manager /usr/local/bin/tunnel-manager
-```
-
-### windows
-```powershell
-# Build the executable (from PowerShell or CMD)
-go build -o tunnel-manager.exe main.go
-# Copy to a directory in your PATH, e.g. C:\Windows or C:\Program Files (requires admin)
-copy tunnel-manager.exe "C:\Windows\tunnel-manager.exe"
-# Or add the project directory to your PATH environment variable
-# setx PATH "%PATH%;C:\path\to\your\project"
-```
+- Pastikan Go sudah terinstall di sistem Anda.
+- Perintah di atas akan otomatis membangun dan menginstall tunnel-manager ke /usr/local/bin (Linux/macOS).
+- Untuk Windows, jalankan `make install` lalu salin tunnel-manager.exe ke folder PATH Anda secara manual.
 
 ## usage
 ### show help
