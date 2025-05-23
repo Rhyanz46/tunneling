@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
@@ -357,7 +361,7 @@ func main() {
 		fmt.Println("  tunnel-manager remove <name>      - Remove a tunnel")
 		fmt.Println("  tunnel-manager list               - List all tunnels")
 		fmt.Println("  tunnel-manager status             - Show connection status")
-		fmt.Println("  tunnel-manager set-config --host <VPS_IP> --user <USER> --rsa <KEY_PATH> --ssh-port <PORT>")
+		fmt.Println("  tunnel-manager login               - Login and setup SSH key authentication")
 		return
 	}
 
@@ -432,56 +436,108 @@ func main() {
 			tm.client.Close()
 		}
 
-	case "set-config":
-		// Default values
-		host := ""
-		user := ""
-		rsa := ""
-		sshPort := 22
+	case "login":
+		// Prompt for host, username, password, and port
+		var host, user, password string
+		var port int
+		fmt.Print("Host: ")
+		fmt.Scanln(&host)
+		fmt.Print("Username: ")
+		fmt.Scanln(&user)
+		fmt.Print("Password: ")
+		fmt.Scanln(&password)
+		fmt.Print("SSH Port [22]: ")
+		fmt.Scanln(&port)
+		if port == 0 {
+			port = 22
+		}
 
-		// Parse flags
-		for i := 2; i < len(os.Args); i++ {
-			if os.Args[i] == "--host" && i+1 < len(os.Args) {
-				host = os.Args[i+1]
-				i++
-			} else if os.Args[i] == "--user" && i+1 < len(os.Args) {
-				user = os.Args[i+1]
-				i++
-			} else if os.Args[i] == "--rsa" && i+1 < len(os.Args) {
-				rsa = os.Args[i+1]
-				i++
-			} else if os.Args[i] == "--ssh-port" && i+1 < len(os.Args) {
-				p, err := strconv.Atoi(os.Args[i+1])
-				if err == nil {
-					sshPort = p
-				}
-				i++
+		// Try SSH connection with password
+		sshConfig := &ssh.ClientConfig{
+			User: user,
+			Auth: []ssh.AuthMethod{ssh.Password(password)},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			Timeout: 10 * time.Second,
+		}
+		addr := fmt.Sprintf("%s:%d", host, port)
+		client, err := ssh.Dial("tcp", addr, sshConfig)
+		if err != nil {
+			log.Fatalf("❌ Failed to connect via SSH: %v", err)
+		}
+		defer client.Close()
+		fmt.Println("✅ SSH password authentication successful.")
+
+		// Generate RSA key if not exists
+		home, _ := os.UserHomeDir()
+		keyDir := filepath.Join(home, ".tunnel-manager")
+		keyPath := filepath.Join(keyDir, "id_rsa")
+		pubPath := keyPath + ".pub"
+		if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+			if err := os.MkdirAll(keyDir, 0700); err != nil {
+				log.Fatal("Failed to create key directory:", err)
 			}
+			fmt.Println("🔑 Generating new RSA key pair...")
+			priv, pub, err := generateRSAKeyPair()
+			if err != nil {
+				log.Fatal("Failed to generate RSA key:", err)
+			}
+			os.WriteFile(keyPath, priv, 0600)
+			os.WriteFile(pubPath, pub, 0644)
+			fmt.Println("✅ RSA key pair generated.")
+		} else {
+			fmt.Println("🔑 RSA key already exists, using existing key.")
 		}
 
-		if host == "" || user == "" || rsa == "" {
-			log.Fatal("Usage: tunnel-manager set-config --host <VPS_IP> --user <USER> --rsa <KEY_PATH> --ssh-port <PORT>")
+		// Upload public key to server's authorized_keys
+		pubKey, err := os.ReadFile(pubPath)
+		if err != nil {
+			log.Fatal("Failed to read public key:", err)
 		}
+		sess, err := client.NewSession()
+		if err != nil {
+			log.Fatal("Failed to create SSH session:", err)
+		}
+		defer sess.Close()
+		authCmd := fmt.Sprintf("mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '%s' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys", strings.TrimSpace(string(pubKey)))
+		if err := sess.Run(authCmd); err != nil {
+			log.Fatal("Failed to upload public key:", err)
+		}
+		fmt.Println("✅ Public key uploaded to server.")
 
+		// Update config
 		configPath := getConfigPath()
 		config, err := loadConfig(configPath)
 		if err != nil {
 			log.Fatal("Failed to load config:", err)
 		}
-
 		config.VPSHost = host
 		config.VPSUser = user
-		config.KeyFile = rsa
-		config.VPSPort = sshPort
-
+		config.KeyFile = keyPath
+		config.VPSPort = port
 		if err := saveConfig(configPath, config); err != nil {
 			log.Fatal("Failed to save config:", err)
 		}
-
-		fmt.Println("✅ Config updated successfully.")
+		fmt.Println("✅ Login and SSH key setup complete. You can now use 'tunnel-manager start'.")
 		return
 
 	default:
 		log.Fatal("Unknown command:", command)
 	}
+}
+
+// generateRSAKeyPair generates a new RSA private and public key pair.
+func generateRSAKeyPair() ([]byte, []byte, error) {
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+	privDER := x509.MarshalPKCS1PrivateKey(privKey)
+	privBlock := pem.Block{Type: "RSA PRIVATE KEY", Bytes: privDER}
+	privPEM := pem.EncodeToMemory(&privBlock)
+	pub, err := ssh.NewPublicKey(&privKey.PublicKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	pubBytes := ssh.MarshalAuthorizedKey(pub)
+	return privPEM, pubBytes, nil
 }
