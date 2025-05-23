@@ -11,7 +11,7 @@ else
 	EXT := .exe
 endif
 
-.PHONY: all build install clean
+.PHONY: all build install local clean
 
 all: build
 
@@ -19,6 +19,7 @@ build:
 	@echo "[INFO] Building for $(OS)..."
 	go build -o $(BINARY)$(EXT) main.go
 
+# Install to system bin (global)
 install: build
 ifeq ($(OS),Linux)
 	@echo "[INFO] Installing to /usr/local/bin (requires sudo)"
@@ -29,6 +30,11 @@ else ifeq ($(OS),Darwin)
 else
 	@echo "[INFO] Detected Windows. Please copy '$(BINARY).exe' to a directory in your PATH manually."
 endif
+
+# Only build in current directory (local usage)
+local:
+	@echo "[INFO] Building for local usage only..."
+	go build -o $(BINARY)$(EXT) main.go
 
 clean:
 	rm -f $(BINARY) $(BINARY).exe
