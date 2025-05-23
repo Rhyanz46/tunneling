@@ -458,16 +458,28 @@ func main() {
 		if err != nil {
 			log.Fatal("No background tunnel-manager found (pid file missing)")
 		}
+		// Cek apakah proses masih hidup
 		proc, err := os.FindProcess(pid)
 		if err != nil {
-			log.Fatalf("Failed to find process with PID %d: %v", pid, err)
+			removePidFile()
+			log.Fatalf("Process with PID %d not found. PID file removed.", pid)
 		}
+		// Coba kirim SIGTERM
 		err = proc.Signal(syscall.SIGTERM)
 		if err != nil {
-			log.Fatalf("Failed to stop tunnel-manager (PID %d): %v", pid, err)
+			removePidFile()
+			log.Fatalf("Failed to stop tunnel-manager (PID %d): %v. PID file removed.", pid, err)
 		}
-		removePidFile()
-		fmt.Printf("🛑 tunnel-manager (PID %d) stopped.\n", pid)
+		// Tunggu proses benar-benar mati (polling max 5 detik)
+		for i := 0; i < 50; i++ {
+			if !processExists(pid) {
+				removePidFile()
+				fmt.Printf("🛑 tunnel-manager (PID %d) stopped.\n", pid)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		log.Printf("Warning: tunnel-manager (PID %d) did not exit after SIGTERM. You may need to kill it manually.", pid)
 
 	case "add":
 		if len(os.Args) < 5 {
@@ -618,4 +630,14 @@ func generateRSAKeyPair() ([]byte, []byte, error) {
 	}
 	pubBytes := ssh.MarshalAuthorizedKey(pub)
 	return privPEM, pubBytes, nil
+}
+
+// processExists returns true if a process with the given pid exists
+func processExists(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	// On Unix, sending signal 0 checks for existence
+	err := syscall.Kill(pid, 0)
+	return err == nil
 }
