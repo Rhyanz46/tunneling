@@ -414,7 +414,10 @@ func main() {
 				os.Stdout = f
 				os.Stderr = f
 				os.Stdin = f
-				writePidFile(os.Getpid())
+				if err := writePidFile(os.Getpid()); err != nil {
+					log.Fatalf("Failed to write PID file: %v", err)
+				}
+				log.Printf("[DAEMON] PID file written: %d", os.Getpid())
 			} else {
 				// Relaunch self in background
 				execPath, _ := os.Executable()
@@ -435,10 +438,16 @@ func main() {
 		}
 
 		if err := tm.Connect(); err != nil {
+			if background {
+				removePidFile()
+			}
 			log.Fatal("Failed to connect:", err)
 		}
 
 		if err := tm.StartTunnels(); err != nil {
+			if background {
+				removePidFile()
+			}
 			log.Fatal("Failed to start tunnels:", err)
 		}
 
