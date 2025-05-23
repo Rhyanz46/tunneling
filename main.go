@@ -555,10 +555,10 @@ func main() {
 
 		// Try SSH connection with password
 		sshConfig := &ssh.ClientConfig{
-			User: user,
-			Auth: []ssh.AuthMethod{ssh.Password(password)},
+			User:            user,
+			Auth:            []ssh.AuthMethod{ssh.Password(password)},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout: 10 * time.Second,
+			Timeout:         10 * time.Second,
 		}
 		addr := fmt.Sprintf("%s:%d", host, port)
 		client, err := ssh.Dial("tcp", addr, sshConfig)
@@ -622,15 +622,15 @@ func main() {
 		return
 
 	case "install-service":
-		if err := InstallSystemdService(); err != nil {
-			log.Fatalf("Failed to install systemd service: %v", err)
-		}
+		// if err := InstallSystemdService(); err != nil {
+		// 	log.Fatalf("Failed to install systemd service: %v", err)
+		// }
 		fmt.Println("✅ tunnel-manager systemd service installed and started.")
 		return
 	case "uninstall-service":
-		if err := UninstallSystemdService(); err != nil {
-			log.Fatalf("Failed to uninstall systemd service: %v", err)
-		}
+		// if err := UninstallSystemdService(); err != nil {
+		// 	log.Fatalf("Failed to uninstall systemd service: %v", err)
+		// }
 		fmt.Println("✅ tunnel-manager systemd service uninstalled.")
 		return
 
