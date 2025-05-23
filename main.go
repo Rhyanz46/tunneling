@@ -408,23 +408,28 @@ func main() {
 	case "start":
 		background := len(os.Args) > 2 && os.Args[2] == "-d"
 		if background {
-			// Fork to background (Linux/macOS only)
 			if os.Getenv("TUNNEL_MANAGER_DAEMON") == "1" {
-				// Already in daemon mode
+				// Already in daemon mode, setup output to /dev/null
+				f, _ := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+				os.Stdout = f
+				os.Stderr = f
+				os.Stdin = f
+				writePidFile(os.Getpid())
 			} else {
 				// Relaunch self in background
 				execPath, _ := os.Executable()
-				args := append([]string{execPath, "start"}, os.Args[3:]...)
-				cmd := exec.Command(args[0], args[1:]...)
+				args := append([]string{"start"}, os.Args[3:]...)
+				cmd := exec.Command(execPath, args...)
 				cmd.Env = append(os.Environ(), "TUNNEL_MANAGER_DAEMON=1")
-				cmd.Stdout = nil
-				cmd.Stderr = nil
+				f, _ := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+				cmd.Stdout = f
+				cmd.Stderr = f
+				cmd.Stdin = f
 				err := cmd.Start()
 				if err != nil {
 					log.Fatal("Failed to start in background:", err)
 				}
 				fmt.Printf("🚀 tunnel-manager started in background (PID %d)\n", cmd.Process.Pid)
-				writePidFile(cmd.Process.Pid)
 				return
 			}
 		}
@@ -441,15 +446,13 @@ func main() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-		if background {
-			writePidFile(os.Getpid())
-		}
 		log.Println("🚀 Tunnel manager started. Press Ctrl+C to stop.")
 		<-sigChan
 		tm.Stop()
 		if background {
 			removePidFile()
 		}
+
 	case "stop":
 		pid, err := readPidFile()
 		if err != nil {
