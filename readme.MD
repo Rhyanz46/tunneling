@@ -28,6 +28,8 @@ example output
 $ tunnel-manager     
 Usage:
   tunnel-manager start              - Start all tunnels
+  tunnel-manager start -d           - Start all tunnels in background (daemon)
+  tunnel-manager stop               - Stop background tunnel-manager
   tunnel-manager add <name> <local_port> <remote_port> [description]
   tunnel-manager remove <name>      - Remove a tunnel
   tunnel-manager list               - List all tunnels
@@ -40,6 +42,18 @@ Usage:
 $ tunnel-manager login
 # Masukkan host, username, password, dan port saat diminta.
 # Jika berhasil, SSH key akan otomatis dibuat dan diupload ke server.
+```
+
+### start di background (daemon)
+```
+$ tunnel-manager start -d
+# Tunnel manager akan berjalan di background.
+```
+
+### stop background tunnel-manager
+```
+$ tunnel-manager stop
+# Menghentikan tunnel-manager yang berjalan di background.
 ```
 
 ### add tunnel

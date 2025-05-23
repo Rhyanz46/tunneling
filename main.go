@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -353,15 +354,45 @@ func getConfigPath() string {
 	return filepath.Join(home, ".tunnel-manager", "config.json")
 }
 
+func getPidFilePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".tunnel-manager", "tunnel-manager.pid")
+}
+
+func writePidFile(pid int) error {
+	pidFile := getPidFilePath()
+	dir := filepath.Dir(pidFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), 0644)
+}
+
+func readPidFile() (int, error) {
+	pidFile := getPidFilePath()
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(b)))
+}
+
+func removePidFile() {
+	pidFile := getPidFilePath()
+	os.Remove(pidFile)
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage:")
 		fmt.Println("  tunnel-manager start              - Start all tunnels")
+		fmt.Println("  tunnel-manager start -d           - Start all tunnels in background (daemon)")
+		fmt.Println("  tunnel-manager stop               - Stop background tunnel-manager")
 		fmt.Println("  tunnel-manager add <name> <local_port> <remote_port> [description]")
 		fmt.Println("  tunnel-manager remove <name>      - Remove a tunnel")
 		fmt.Println("  tunnel-manager list               - List all tunnels")
 		fmt.Println("  tunnel-manager status             - Show connection status")
-		fmt.Println("  tunnel-manager login               - Login and setup SSH key authentication")
+		fmt.Println("  tunnel-manager login              - Login and setup SSH key authentication")
 		return
 	}
 
@@ -375,6 +406,29 @@ func main() {
 
 	switch command {
 	case "start":
+		background := len(os.Args) > 2 && os.Args[2] == "-d"
+		if background {
+			// Fork to background (Linux/macOS only)
+			if os.Getenv("TUNNEL_MANAGER_DAEMON") == "1" {
+				// Already in daemon mode
+			} else {
+				// Relaunch self in background
+				execPath, _ := os.Executable()
+				args := append([]string{execPath, "start"}, os.Args[3:]...)
+				cmd := exec.Command(args[0], args[1:]...)
+				cmd.Env = append(os.Environ(), "TUNNEL_MANAGER_DAEMON=1")
+				cmd.Stdout = nil
+				cmd.Stderr = nil
+				err := cmd.Start()
+				if err != nil {
+					log.Fatal("Failed to start in background:", err)
+				}
+				fmt.Printf("🚀 tunnel-manager started in background (PID %d)\n", cmd.Process.Pid)
+				writePidFile(cmd.Process.Pid)
+				return
+			}
+		}
+
 		if err := tm.Connect(); err != nil {
 			log.Fatal("Failed to connect:", err)
 		}
@@ -387,9 +441,30 @@ func main() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+		if background {
+			writePidFile(os.Getpid())
+		}
 		log.Println("🚀 Tunnel manager started. Press Ctrl+C to stop.")
 		<-sigChan
 		tm.Stop()
+		if background {
+			removePidFile()
+		}
+	case "stop":
+		pid, err := readPidFile()
+		if err != nil {
+			log.Fatal("No background tunnel-manager found (pid file missing)")
+		}
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			log.Fatalf("Failed to find process with PID %d: %v", pid, err)
+		}
+		err = proc.Signal(syscall.SIGTERM)
+		if err != nil {
+			log.Fatalf("Failed to stop tunnel-manager (PID %d): %v", pid, err)
+		}
+		removePidFile()
+		fmt.Printf("🛑 tunnel-manager (PID %d) stopped.\n", pid)
 
 	case "add":
 		if len(os.Args) < 5 {
