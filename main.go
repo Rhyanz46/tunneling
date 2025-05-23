@@ -13,15 +13,12 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
-	"time"
+	"syscall" // Needed for ProcessExists
 
 	"golang.org/x/crypto/ssh"
 )
@@ -55,7 +52,7 @@ type TunnelManager struct {
 }
 
 func NewTunnelManager(configPath string) (*TunnelManager, error) {
-	config, err := loadConfig(configPath)
+	config, err := LoadConfig(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +67,7 @@ func NewTunnelManager(configPath string) (*TunnelManager, error) {
 	}, nil
 }
 
-func loadConfig(configPath string) (Config, error) {
+func LoadConfig(configPath string) (Config, error) {
 	var config Config
 
 	// Default config
@@ -94,7 +91,7 @@ func loadConfig(configPath string) (Config, error) {
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		// Create default config file
-		return config, saveConfig(configPath, config)
+		return config, SaveConfig(configPath, config)
 	}
 
 	file, err := os.Open(configPath)
@@ -108,7 +105,7 @@ func loadConfig(configPath string) (Config, error) {
 	return config, err
 }
 
-func saveConfig(configPath string, config Config) error {
+func SaveConfig(configPath string, config Config) error {
 	// Create directory if not exists
 	dir := filepath.Dir(configPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -264,8 +261,8 @@ func (tm *TunnelManager) AddTunnel(name string, localPort, remotePort int, descr
 	tm.config.Tunnels = append(tm.config.Tunnels, newTunnel)
 
 	// Save config
-	configPath := getConfigPath()
-	if err := saveConfig(configPath, tm.config); err != nil {
+	configPath := GetConfigPath()
+	if err := SaveConfig(configPath, tm.config); err != nil {
 		return fmt.Errorf("failed to save config: %v", err)
 	}
 
@@ -296,8 +293,8 @@ func (tm *TunnelManager) RemoveTunnel(name string) error {
 			tm.config.Tunnels = append(tm.config.Tunnels[:i], tm.config.Tunnels[i+1:]...)
 
 			// Save config
-			configPath := getConfigPath()
-			if err := saveConfig(configPath, tm.config); err != nil {
+			configPath := GetConfigPath()
+			if err := SaveConfig(configPath, tm.config); err != nil {
 				return fmt.Errorf("failed to save config: %v", err)
 			}
 
@@ -351,18 +348,18 @@ func (tm *TunnelManager) Stop() {
 	log.Println("✅ All tunnels stopped")
 }
 
-func getConfigPath() string {
+func GetConfigPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "."+os_service.ServiceName, "config.json")
 }
 
-func getPidFilePath() string {
+func GetPidFilePath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "."+os_service.ServiceName, "tunnel-manager.pid")
 }
 
-func writePidFile(pid int) error {
-	pidFile := getPidFilePath()
+func WritePidFile(pid int) error {
+	pidFile := GetPidFilePath()
 	dir := filepath.Dir(pidFile)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -370,8 +367,8 @@ func writePidFile(pid int) error {
 	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), 0644)
 }
 
-func readPidFile() (int, error) {
-	pidFile := getPidFilePath()
+func ReadPidFile() (int, error) {
+	pidFile := GetPidFilePath()
 	b, err := os.ReadFile(pidFile)
 	if err != nil {
 		return 0, err
@@ -379,8 +376,8 @@ func readPidFile() (int, error) {
 	return strconv.Atoi(strings.TrimSpace(string(b)))
 }
 
-func removePidFile() {
-	pidFile := getPidFilePath()
+func RemovePidFile() {
+	pidFile := GetPidFilePath()
 	os.Remove(pidFile)
 }
 
@@ -422,14 +419,6 @@ func isWindows() bool {
 	return runtime.GOOS == "windows"
 }
 
-// StatusSystemdService checks the status of the systemd service
-func StatusSystemdService() error {
-	cmd := exec.Command("systemctl", "status", "tunnel-manager")
-	cmd.Stdout = exec.Command("cat").Stdout // Forward output to terminal
-	cmd.Stderr = exec.Command("cat").Stderr
-	return cmd.Run()
-}
-
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage:")
@@ -446,7 +435,7 @@ func main() {
 		return
 	}
 
-	configPath := getConfigPath()
+	configPath := GetConfigPath()
 	tm, err := NewTunnelManager(configPath)
 	if err != nil {
 		log.Fatal("Failed to create tunnel manager:", err)
@@ -456,239 +445,30 @@ func main() {
 
 	switch command {
 	case "start":
-		background := len(os.Args) > 2 && os.Args[2] == "-d"
-		if background {
-			if os.Getenv("TUNNEL_MANAGER_DAEMON") == "1" {
-				// Already in daemon mode, setup output to /dev/null
-				f, _ := os.OpenFile(os.DevNull, os.O_RDWR, 0)
-				os.Stdout = f
-				os.Stderr = f
-				os.Stdin = f
-				if err := writePidFile(os.Getpid()); err != nil {
-					log.Fatalf("Failed to write PID file: %v", err)
-				}
-				log.Printf("[DAEMON] PID file written: %d", os.Getpid())
-			} else {
-				// Relaunch self in background
-				execPath, _ := os.Executable()
-				args := append([]string{"start"}, os.Args[3:]...)
-				cmd := exec.Command(execPath, args...)
-				cmd.Env = append(os.Environ(), "TUNNEL_MANAGER_DAEMON=1")
-				f, _ := os.OpenFile(os.DevNull, os.O_RDWR, 0)
-				cmd.Stdout = f
-				cmd.Stderr = f
-				cmd.Stdin = f
-				err := cmd.Start()
-				if err != nil {
-					log.Fatal("Failed to start in background:", err)
-				}
-				fmt.Printf("🚀 tunnel-manager started in background (PID %d)\n", cmd.Process.Pid)
-				return
-			}
-		}
-
-		if err := tm.Connect(); err != nil {
-			if background {
-				removePidFile()
-			}
-			log.Fatal("Failed to connect:", err)
-		}
-
-		if err := tm.StartTunnels(); err != nil {
-			if background {
-				removePidFile()
-			}
-			log.Fatal("Failed to start tunnels:", err)
-		}
-
-		// Handle graceful shutdown
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-		log.Println("🚀 Tunnel manager started. Press Ctrl+C to stop.")
-		<-sigChan
-		tm.Stop()
-		if background {
-			removePidFile()
-		}
-
+		handleStartCommand(tm, os.Args)
 	case "stop":
-		pid, err := readPidFile()
-		if err != nil {
-			log.Fatal("No background tunnel-manager found (pid file missing)")
-		}
-		// Cek apakah proses masih hidup
-		proc, err := os.FindProcess(pid)
-		if err != nil {
-			removePidFile()
-			log.Fatalf("Process with PID %d not found. PID file removed.", pid)
-		}
-		// Coba kirim SIGTERM
-		err = proc.Signal(syscall.SIGTERM)
-		if err != nil {
-			removePidFile()
-			log.Fatalf("Failed to stop tunnel-manager (PID %d): %v. PID file removed.", pid, err)
-		}
-		// Tunggu proses benar-benar mati (polling max 5 detik)
-		for i := 0; i < 50; i++ {
-			if !processExists(pid) {
-				removePidFile()
-				fmt.Printf("🛑 tunnel-manager (PID %d) stopped.\n", pid)
-				return
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		log.Printf("Warning: tunnel-manager (PID %d) did not exit after SIGTERM. You may need to kill it manually.", pid)
-
+		handleStopCommand(tm, os.Args)
 	case "add":
-		if len(os.Args) < 5 {
-			log.Fatal("Usage: tunnel-manager add <name> <local_port> <remote_port> [description]")
-		}
-
-		name := os.Args[2]
-		localPort, err := strconv.Atoi(os.Args[3])
-		if err != nil {
-			log.Fatal("Invalid local port:", err)
-		}
-
-		remotePort, err := strconv.Atoi(os.Args[4])
-		if err != nil {
-			log.Fatal("Invalid remote port:", err)
-		}
-
-		description := ""
-		if len(os.Args) > 5 {
-			description = strings.Join(os.Args[5:], " ")
-		}
-
-		if err := tm.AddTunnel(name, localPort, remotePort, description); err != nil {
-			log.Fatal("Failed to add tunnel:", err)
-		}
-
+		handleAddCommand(tm, os.Args)
 	case "remove":
-		if len(os.Args) < 3 {
-			log.Fatal("Usage: tunnel-manager remove <name>")
-		}
-
-		if err := tm.RemoveTunnel(os.Args[2]); err != nil {
-			log.Fatal("Failed to remove tunnel:", err)
-		}
-
+		handleRemoveCommand(tm, os.Args)
 	case "list":
-		tm.ListTunnels()
-
+		handleListCommand(tm, os.Args)
 	case "status":
-		if err := tm.Connect(); err != nil {
-			fmt.Printf("❌ Connection status: Failed (%v)\n", err)
-		} else {
-			fmt.Printf("✅ Connection status: Connected to %s\n", tm.config.VPSHost)
-			tm.client.Close()
-		}
-
+		handleStatusCommand(tm, os.Args)
 	case "login":
-		// Prompt for host, username, password, and port
-		var host, user, password string
-		var port int
-		fmt.Print("Host: ")
-		fmt.Scanln(&host)
-		fmt.Print("Username: ")
-		fmt.Scanln(&user)
-		fmt.Print("Password: ")
-		fmt.Scanln(&password)
-		fmt.Print("SSH Port [22]: ")
-		fmt.Scanln(&port)
-		if port == 0 {
-			port = 22
-		}
-
-		// Try SSH connection with password
-		sshConfig := &ssh.ClientConfig{
-			User:            user,
-			Auth:            []ssh.AuthMethod{ssh.Password(password)},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         10 * time.Second,
-		}
-		addr := fmt.Sprintf("%s:%d", host, port)
-		client, err := ssh.Dial("tcp", addr, sshConfig)
-		if err != nil {
-			log.Fatalf("❌ Failed to connect via SSH: %v", err)
-		}
-		defer client.Close()
-		fmt.Println("✅ SSH password authentication successful.")
-
-		// Generate RSA key if not exists
-		home, _ := os.UserHomeDir()
-		keyDir := filepath.Join(home, ".tunnel-manager")
-		keyPath := filepath.Join(keyDir, "id_rsa")
-		pubPath := keyPath + ".pub"
-		if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-			if err := os.MkdirAll(keyDir, 0700); err != nil {
-				log.Fatal("Failed to create key directory:", err)
-			}
-			fmt.Println("🔑 Generating new RSA key pair...")
-			priv, pub, err := generateRSAKeyPair()
-			if err != nil {
-				log.Fatal("Failed to generate RSA key:", err)
-			}
-			os.WriteFile(keyPath, priv, 0600)
-			os.WriteFile(pubPath, pub, 0644)
-			fmt.Println("✅ RSA key pair generated.")
-		} else {
-			fmt.Println("🔑 RSA key already exists, using existing key.")
-		}
-
-		// Upload public key to server's authorized_keys
-		pubKey, err := os.ReadFile(pubPath)
-		if err != nil {
-			log.Fatal("Failed to read public key:", err)
-		}
-		sess, err := client.NewSession()
-		if err != nil {
-			log.Fatal("Failed to create SSH session:", err)
-		}
-		defer sess.Close()
-		authCmd := fmt.Sprintf("mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '%s' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys", strings.TrimSpace(string(pubKey)))
-		if err := sess.Run(authCmd); err != nil {
-			log.Fatal("Failed to upload public key:", err)
-		}
-		fmt.Println("✅ Public key uploaded to server.")
-
-		// Update config
-		configPath := getConfigPath()
-		config, err := loadConfig(configPath)
-		if err != nil {
-			log.Fatal("Failed to load config:", err)
-		}
-		config.VPSHost = host
-		config.VPSUser = user
-		config.KeyFile = keyPath
-		config.VPSPort = port
-		if err := saveConfig(configPath, config); err != nil {
-			log.Fatal("Failed to save config:", err)
-		}
-		fmt.Println("✅ Login and SSH key setup complete. You can now use 'tunnel-manager start'.")
-		return
-
+		handleLoginCommand(tm, os.Args)
 	case "install-service":
-		if err := InstallSystemService(); err != nil {
-			log.Fatalf("Failed to install system service: %v", err)
-		}
-		fmt.Println("✅ tunnel-manager system service installed and started.")
-		return
+		handleInstallServiceCommand(tm, os.Args)
 	case "uninstall-service":
-		if err := UninstallSystemService(); err != nil {
-			log.Fatalf("Failed to uninstall system service: %v", err)
-		}
-		fmt.Println("✅ tunnel-manager system service uninstalled.")
-		return
-
+		handleUninstallServiceCommand(tm, os.Args)
 	default:
 		log.Fatal("Unknown command:", command)
 	}
 }
 
-// generateRSAKeyPair generates a new RSA private and public key pair.
-func generateRSAKeyPair() ([]byte, []byte, error) {
+// GenerateRSAKeyPair generates a new RSA private and public key pair.
+func GenerateRSAKeyPair() ([]byte, []byte, error) {
 	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, nil, err
@@ -704,12 +484,18 @@ func generateRSAKeyPair() ([]byte, []byte, error) {
 	return privPEM, pubBytes, nil
 }
 
-// processExists returns true if a process with the given pid exists
-func processExists(pid int) bool {
+// ProcessExists returns true if a process with the given pid exists
+func ProcessExists(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	// On Unix, sending signal 0 checks for existence
-	err := syscall.Kill(pid, 0)
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false // Process not found means it doesn't exist
+	}
+	// Sending signal 0 to a process on Unix-like systems checks if the process exists without affecting it.
+	// On Windows, os.FindProcess alone doesn't guarantee the process is still running,
+	// but process.Signal(syscall.Signal(0)) is a common way to check.
+	err = process.Signal(syscall.Signal(0))
 	return err == nil
 }
