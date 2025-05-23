@@ -20,9 +20,13 @@ sudo ln -s $(pwd)/tunnel-manager /usr/local/bin/tunnel-manager
 
 ### windows
 ```powershell
-mklink /d "C:\Program Files\tunnel-manager" "C:\Users\rhyan\go\src\github.com\Rhyanz46\tunneling"
+# Build the executable (from PowerShell or CMD)
+go build -o tunnel-manager.exe main.go
+# Copy to a directory in your PATH, e.g. C:\Windows or C:\Program Files (requires admin)
+copy tunnel-manager.exe "C:\Windows\tunnel-manager.exe"
+# Or add the project directory to your PATH environment variable
+# setx PATH "%PATH%;C:\path\to\your\project"
 ```
-
 
 ## usage
 ### show help
