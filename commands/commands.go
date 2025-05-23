@@ -444,15 +444,59 @@ func HandleStartCommand(tm *TunnelManager, args []string) {
 	background := len(args) > 2 && args[2] == "-d"
 	if background {
 		if os.Getenv("TUNNEL_MANAGER_DAEMON") == "1" {
-			// Already in daemon mode, setup output to /dev/null
-			f, _ := os.OpenFile(os.DevNull, os.O_RDWR, 0)
-			os.Stdout = f
-			os.Stderr = f
-			os.Stdin = f
-			if err := writePidFile(os.Getpid()); err != nil { // Changed to unexported
-				log.Fatalf("Failed to write PID file: %v", err)
+			// Determine log file path
+			home, _ := os.UserHomeDir()
+			logDir := filepath.Join(home, "."+os_service.ServiceName) // os_service.ServiceName is "tunnel-manager"
+			if err := os.MkdirAll(logDir, 0755); err != nil {
+				// Problem creating log directory, log to standard logger and potentially exit or continue
+				log.Printf("[DAEMON_CHILD] CRITICAL: Failed to create log directory %s: %v", logDir, err)
+				// If we can't create log dir, we probably can't create pid dir either.
 			}
-			log.Printf("[DAEMON] PID file written: %d", os.Getpid())
+			logFilePath := filepath.Join(logDir, "daemon.log")
+
+			// Open/create the log file for appending
+			logFile, err_log_file := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err_log_file != nil {
+				// Problem opening log file, log to standard logger and potentially exit or continue
+				log.Printf("[DAEMON_CHILD] CRITICAL: Failed to open daemon log file %s: %v", logFilePath, err_log_file)
+			}
+			if err_log_file == nil {
+				 defer logFile.Close()
+			}
+
+			// Create a new logger
+			var daemonLogger *log.Logger
+			if err_log_file == nil {
+				daemonLogger = log.New(logFile, "[DAEMON_CHILD] ", log.LstdFlags|log.Lmicroseconds)
+			} else {
+				// Fallback to standard logger if file logger fails
+				daemonLogger = log.New(os.Stderr, "[DAEMON_CHILD_STDERR] ", log.LstdFlags|log.Lmicroseconds)
+			}
+
+			daemonLogger.Println("Daemon child process started.")
+
+			// Comment out redirection of os.Stdout and os.Stderr to os.DevNull
+			// f, err_null := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+			// if err_null != nil {
+			// 	daemonLogger.Printf("Error opening /dev/null: %v", err_null)
+			// } else {
+			// 	os.Stdout = f
+			// 	os.Stderr = f
+			// 	// os.Stdin = f // Stdin redirection can remain if desired
+			// }
+			// daemonLogger.Println("Output redirection to /dev/null (currently commented out).")
+
+
+			pid := os.Getpid()
+			daemonLogger.Printf("Attempting to write PID %d to PID file.", pid) // Log attempt
+			if err := writePidFile(pid); err != nil { // Changed to unexported
+				// daemonLogger.Printf("CRITICAL: Failed to write PID file for PID %d: %v. Daemon will exit.", pid, err)
+				daemonLogger.Fatalf("Exiting due to PID file write failure: %v", err) // This logs and exits
+			} else {
+				daemonLogger.Printf("PID file written successfully for PID %d.", pid)
+			}
+			// The old log.Printf("[DAEMON] PID file written: %d", os.Getpid()) is removed as Fatalf would prevent it
+			// and the success case is covered by the else block.
 		} else {
 			// Relaunch self in background
 			execPath, _ := os.Executable()
