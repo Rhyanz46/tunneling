@@ -10,8 +10,8 @@ Tunnel Manager adalah CLI tool berbasis Go untuk mengelola SSH tunnel ke VPS sec
 ## installation
 
 ```
-git clone https://github.com/Rhyanz46/tunneling.git
-cd tunneling
+$ git clone https://github.com/Rhyanz46/tunneling.git
+$ cd tunneling
 make install
 ```
 
@@ -22,7 +22,7 @@ make install
 ## usage
 ### show help
 ```
-tunnel-manager
+$ tunnel-manager
 ```
 example output
 ```
