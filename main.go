@@ -11,19 +11,24 @@ import (
 // All helper functions, struct definitions, and TunnelManager methods are now in the commands package.
 // main.go will only contain the main function and basic CLI argument parsing.
 
+func showHelp() {
+	fmt.Println("Usage:")
+	fmt.Println("  tunnel-manager start              - Start all tunnels")
+	fmt.Println("  tunnel-manager start -d           - Start all tunnels in background (daemon)")
+	fmt.Println("  tunnel-manager stop               - Stop background tunnel-manager")
+	fmt.Println("  tunnel-manager add <name> <local_port> <remote_port> [description]")
+	fmt.Println("  tunnel-manager remove <name>      - Remove a tunnel")
+	fmt.Println("  tunnel-manager list               - List all tunnels")
+	fmt.Println("  tunnel-manager status             - Show connection status")
+	fmt.Println("  tunnel-manager login              - Login and setup SSH key authentication")
+	fmt.Println("  tunnel-manager install-service    - Install systemd service")
+	fmt.Println("  tunnel-manager uninstall-service  - Uninstall systemd service")
+}
+
 func main() {
+
 	if len(os.Args) < 2 {
-		fmt.Println("Usage:")
-		fmt.Println("  tunnel-manager start              - Start all tunnels")
-		fmt.Println("  tunnel-manager start -d           - Start all tunnels in background (daemon)")
-		fmt.Println("  tunnel-manager stop               - Stop background tunnel-manager")
-		fmt.Println("  tunnel-manager add <name> <local_port> <remote_port> [description]")
-		fmt.Println("  tunnel-manager remove <name>      - Remove a tunnel")
-		fmt.Println("  tunnel-manager list               - List all tunnels")
-		fmt.Println("  tunnel-manager status             - Show connection status")
-		fmt.Println("  tunnel-manager login              - Login and setup SSH key authentication")
-		fmt.Println("  tunnel-manager install-service    - Install systemd service")
-		fmt.Println("  tunnel-manager uninstall-service  - Uninstall systemd service")
+		showHelp()
 		return
 	}
 
@@ -55,6 +60,8 @@ func main() {
 	case "uninstall-service":
 		commands.HandleUninstallServiceCommand(tm, os.Args)
 	default:
-		log.Fatal("Unknown command:", command)
+		fmt.Println("Unknown command:", command)
+		showHelp()
+		return
 	}
 }
