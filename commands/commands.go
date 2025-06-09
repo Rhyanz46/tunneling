@@ -348,6 +348,56 @@ func (tm *TunnelManager) Stop() {
 	log.Println("✅ All tunnels stopped")
 }
 
+func IsProcessPIDExists(pid int) bool {
+	switch runtime.GOOS {
+	case "windows":
+		cmd := exec.Command("tasklist", "/FI", "PID eq "+strconv.Itoa(pid))
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		err := cmd.Run()
+		if err != nil {
+			return false
+		}
+		return strings.Contains(out.String(), strconv.Itoa(pid))
+
+	case "darwin", "linux":
+		// Cek proses bisa diakses
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			return false
+		}
+		// Signal 0 → ngecek apakah proses bisa disignalin tanpa ngirim sinyal
+		err = process.Signal(syscall.Signal(0))
+		return err == nil
+
+	default:
+		return false
+	}
+}
+
+func KillProcessByPID(pid int) error {
+	if !IsProcessPIDExists(pid) {
+		return fmt.Errorf("pid(%d) is not found", pid)
+	}
+	// deteksi OS dulu
+	switch runtime.GOOS {
+	case "windows":
+		// windows pake taskkill
+		cmd := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/F")
+		return cmd.Run()
+
+	case "darwin", "linux":
+		// linux / mac pake kill -9
+		cmd := exec.Command("kill", "-9", strconv.Itoa(pid))
+		// kalau butuh sudo tinggal uncomment di bawah:
+		// cmd := exec.Command("sudo", "kill", "-9", strconv.Itoa(pid))
+		return cmd.Run()
+
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
 // Helper functions (copied from main.go and mostly unexported)
 
 // getConfigPath returns the path to the configuration file.
@@ -586,6 +636,11 @@ func HandleStartCommand(tm *TunnelManager, args []string) {
 			if err != nil {
 				log.Fatal("Failed to start in background:", err)
 			}
+			tm.config.Pid = cmd.Process.Pid
+			currentConfigPath := getConfigPath()                             // Call unexported getConfigPath
+			if err := saveConfig(currentConfigPath, tm.config); err != nil { // Call unexported saveConfig
+				log.Fatalf("failed to save config: %v", err)
+			}
 			fmt.Printf("🚀 tunnel-manager started in background (PID %d)\n", cmd.Process.Pid)
 			return
 		}
@@ -639,8 +694,23 @@ func HandleStartCommand(tm *TunnelManager, args []string) {
 
 func HandleStopCommand(tm *TunnelManager, args []string) {
 	pid, err := readPidFile() // Changed to unexported
-	if err != nil {
+	if err != nil && tm.config.Pid == 0 {
 		log.Fatal("No background tunnel-manager found (pid file missing)")
+	}
+
+	if tm.config.Pid > 0 {
+		var msg string
+		if err := KillProcessByPID(tm.config.Pid); err != nil {
+			msg = fmt.Sprint(err)
+		} else {
+			msg = fmt.Sprintf("Process with PID %d was stopped.", tm.config.Pid)
+		}
+		tm.config.Pid = 0
+		currentConfigPath := getConfigPath()                             // Call unexported getConfigPath
+		if err := saveConfig(currentConfigPath, tm.config); err != nil { // Call unexported saveConfig
+			log.Fatalf("failed to save config: %v", err)
+		}
+		log.Fatal(msg)
 	}
 	// Cek apakah proses masih hidup
 	proc, err := os.FindProcess(pid) // os.FindProcess is fine
