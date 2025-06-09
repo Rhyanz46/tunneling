@@ -61,3 +61,12 @@ $ tunnel-manager stop
 ```
 $ tunnel-manager add docker-daemon 2375 2375 "docker daemon"
 ```
+
+# Ilustration
+ini adalah sequence diagram ilustrasi high-level langkah dari login command:
+
+## login
+![alt text](image.png)
+
+## start
+![alt text](image-1.png)
