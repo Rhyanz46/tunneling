@@ -70,3 +70,6 @@ ini adalah sequence diagram ilustrasi high-level langkah dari login command:
 
 ## start
 ![alt text](image-1.png)
+
+## connection logic
+![alt text](image-2.png)
