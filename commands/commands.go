@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"bufio"
+	"bytes"
 	"context" // Added
 	"crypto/rand"
 	"crypto/rsa"
@@ -15,15 +17,17 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime" // For isLinux, isDarwin, isWindows
 	"strconv"
 	"strings"
 	"sync" // Added
 	"syscall"
 	"time"
-	"runtime"       // For isLinux, isDarwin, isWindows
-	
+
 	"github.com/Rhyanz46/tunneling/os_service" // For Install/Uninstall
+	"github.com/nexidian/gocliselect"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 // Struct definitions (copied from main.go)
@@ -43,6 +47,7 @@ type Config struct {
 	Tunnels    []TunnelConfig `json:"tunnels"`
 	Retries    int            `json:"retries"`
 	RetryDelay int            `json:"retry_delay"`
+	Pid        int            `json:"pid"`
 }
 
 type TunnelManager struct {
@@ -58,7 +63,7 @@ type TunnelManager struct {
 // NewTunnelManager function (copied from main.go and exported)
 // It now uses the internal getConfigPath
 func NewTunnelManager() (*TunnelManager, error) {
-	configPath := getConfigPath() // Call internal getConfigPath
+	configPath := getConfigPath()         // Call internal getConfigPath
 	config, err := loadConfig(configPath) // This is the unexported loadConfig
 	if err != nil {
 		return nil, err
@@ -110,6 +115,67 @@ func (tm *TunnelManager) Connect() error {
 	tm.client = client
 	log.Printf("✅ Connected to VPS: %s", addr)
 	return nil
+}
+
+type SSHDConf struct {
+	GatewayPorts       bool
+	AllowTcpForwarding bool
+}
+
+func (s *TunnelManager) AnalyzeConfig(output string) (result SSHDConf) {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		line = strings.ToLower(line)
+
+		if len(line) > 0 && string(line[0]) == "#" {
+			continue
+		}
+
+		if strings.Contains(line, "gatewayports") {
+			if strings.Contains(line, "yes") || strings.Contains(line, "clientspecified") {
+				result.GatewayPorts = true
+				fmt.Printf("✅ GatewayPorts: %s\n", strings.Split(line, " ")[1])
+			} else {
+				fmt.Printf("❌ GatewayPorts: %s (should be 'yes')\n", strings.Split(line, " ")[1])
+			}
+		}
+
+		if strings.Contains(line, "allowtcpforwarding") {
+			if strings.Contains(line, "yes") || strings.Contains(line, "remote") {
+				result.AllowTcpForwarding = true
+				fmt.Printf("✅ AllowTcpForwarding: %s\n", strings.Split(line, " ")[1])
+			} else {
+				fmt.Printf("❌ AllowTcpForwarding: %s (should be 'yes')\n", strings.Split(line, " ")[1])
+			}
+		}
+	}
+	return
+}
+
+func (s *TunnelManager) CheckSSHDConfig() (string, error) {
+	var stdoutBuf bytes.Buffer
+	session, err := s.client.NewSession()
+	if session != nil {
+		defer session.Close()
+	}
+	if err != nil {
+		log.Fatal("Failed to create session. " + err.Error())
+	}
+
+	session.Stdout = &stdoutBuf
+
+	// session.Stdin = os.Stdin
+	// session.Stdout = os.Stdout
+	// session.Stderr = os.Stderr
+
+	cmd := "cat /etc/ssh/sshd_config || echo 'Config not found'"
+	err = session.Run(cmd)
+	if err != nil {
+		log.Fatal("Command execution error. " + err.Error())
+	}
+
+	return stdoutBuf.String(), nil
 }
 
 func (tm *TunnelManager) StartTunnels() error {
@@ -205,7 +271,7 @@ func (tm *TunnelManager) AddTunnel(name string, localPort, remotePort int, descr
 	}
 	tm.config.Tunnels = append(tm.config.Tunnels, newTunnel)
 
-	currentConfigPath := getConfigPath() // Call unexported getConfigPath
+	currentConfigPath := getConfigPath()                             // Call unexported getConfigPath
 	if err := saveConfig(currentConfigPath, tm.config); err != nil { // Call unexported saveConfig
 		return fmt.Errorf("failed to save config: %v", err)
 	}
@@ -231,7 +297,7 @@ func (tm *TunnelManager) RemoveTunnel(name string) error {
 	for i, tunnel := range tm.config.Tunnels {
 		if tunnel.Name == name {
 			tm.config.Tunnels = append(tm.config.Tunnels[:i], tm.config.Tunnels[i+1:]...)
-			currentConfigPath := getConfigPath() // Call unexported getConfigPath
+			currentConfigPath := getConfigPath()                             // Call unexported getConfigPath
 			if err := saveConfig(currentConfigPath, tm.config); err != nil { // Call unexported saveConfig
 				return fmt.Errorf("failed to save config: %v", err)
 			}
@@ -437,7 +503,6 @@ func UninstallSystemService() error {
 	}
 }
 
-
 // Existing command handlers
 // Calls to helper functions below will be updated to use local/unexported names.
 func HandleStartCommand(tm *TunnelManager, args []string) {
@@ -461,7 +526,7 @@ func HandleStartCommand(tm *TunnelManager, args []string) {
 				log.Printf("[DAEMON_CHILD] CRITICAL: Failed to open daemon log file %s: %v", logFilePath, err_log_file)
 			}
 			if err_log_file == nil {
-				 defer logFile.Close()
+				defer logFile.Close()
 			}
 
 			// Create a new logger
@@ -486,10 +551,9 @@ func HandleStartCommand(tm *TunnelManager, args []string) {
 			// }
 			// daemonLogger.Println("Output redirection to /dev/null (currently commented out).")
 
-
 			pid := os.Getpid()
 			daemonLogger.Printf("Attempting to write PID %d to PID file.", pid) // Log attempt
-			if err := writePidFile(pid); err != nil { // Changed to unexported
+			if err := writePidFile(pid); err != nil {                           // Changed to unexported
 				// daemonLogger.Printf("CRITICAL: Failed to write PID file for PID %d: %v. Daemon will exit.", pid, err)
 				daemonLogger.Fatalf("Exiting due to PID file write failure: %v", err) // This logs and exits
 			} else {
@@ -528,10 +592,30 @@ func HandleStartCommand(tm *TunnelManager, args []string) {
 	}
 
 	if err := tm.Connect(); err != nil {
-		if background {
-			removePidFile() // Changed to unexported
-		}
+		// if background {
+		// 	removePidFile() // Changed to unexported
+		// }
 		log.Fatal("Failed to connect:", err)
+	}
+
+	if sshdConfStr, err := tm.CheckSSHDConfig(); err != nil {
+		log.Fatal("Can't get SSH Server configuration : ", err)
+	} else if confd := tm.AnalyzeConfig(sshdConfStr); !confd.GatewayPorts && !confd.AllowTcpForwarding {
+		fmt.Println("\nAnalysis:")
+		fmt.Println("=========")
+		if confd.GatewayPorts && confd.AllowTcpForwarding {
+			fmt.Println("✅ Configuration is correct for public remote port forwarding!")
+		} else {
+			fmt.Println("❌ Configuration needs to be updated:")
+			if !confd.GatewayPorts {
+				fmt.Println("   - Set 'GatewayPorts yes' in /etc/ssh/sshd_config")
+			}
+			if !confd.AllowTcpForwarding {
+				fmt.Println("   - Set 'AllowTcpForwarding yes' in /etc/ssh/sshd_config")
+			}
+			fmt.Println("   - Restart SSH service: sudo systemctl restart sshd")
+			os.Exit(1)
+		}
 	}
 
 	if err := tm.StartTunnels(); err != nil {
@@ -637,13 +721,18 @@ func HandleLoginCommand(tm *TunnelManager, args []string) {
 	// Prompt for host, username, password, and port
 	var host, user, password string
 	var port int
+	var rewriteConfig bool
 	fmt.Print("Host: ")
 	fmt.Scanln(&host)
 	fmt.Print("Username: ")
 	fmt.Scanln(&user)
 	fmt.Print("Password: ")
-	fmt.Scanln(&password)
-	fmt.Print("SSH Port [22]: ")
+	pwd, err := terminal.ReadPassword(0)
+	if err != nil {
+		fmt.Println("Invalid Password typed: " + string(password))
+	}
+	password = string(pwd)
+	fmt.Print("\nSSH Port [22]: ")
 	fmt.Scanln(&port)
 	if port == 0 {
 		port = 22
@@ -667,8 +756,12 @@ func HandleLoginCommand(tm *TunnelManager, args []string) {
 	// Generate RSA key if not exists
 	home, _ := os.UserHomeDir()
 	keyDir := filepath.Join(home, ".tunnel-manager") // Using hardcoded ".tunnel-manager" as ServiceName not directly available
+	keyDir = filepath.Join(keyDir, host)             // Using hardcoded ".tunnel-manager" as ServiceName not directly available
+	keyDir = filepath.Join(keyDir, user)             // Using hardcoded ".tunnel-manager" as ServiceName not directly available
 	keyPath := filepath.Join(keyDir, "id_rsa")
 	pubPath := keyPath + ".pub"
+
+rewrite:
 	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
 		if err := os.MkdirAll(keyDir, 0700); err != nil {
 			log.Fatal("Failed to create key directory:", err)
@@ -681,8 +774,21 @@ func HandleLoginCommand(tm *TunnelManager, args []string) {
 		os.WriteFile(keyPath, priv, 0600)
 		os.WriteFile(pubPath, pub, 0644)
 		fmt.Println("✅ RSA key pair generated.")
-	} else {
-		fmt.Println("🔑 RSA key already exists, using existing key.")
+		fmt.Printf("✅ RSA saved to : %s \n", keyDir)
+	} else if !rewriteConfig {
+		menu := gocliselect.NewMenu(fmt.Sprintf("🔑 RSA key already exists on : '%s', replace it ? ", keyDir))
+		menu.AddItem("Replace", "replace")
+		menu.AddItem("No!", "no")
+		choice := menu.Display()
+		if choice == "replace" {
+			rewriteConfig = true
+		}
+
+		if rewriteConfig {
+			goto rewrite
+		}
+		fmt.Printf("✅ Using saved RSA, loaded from : %s \n", keyDir)
+		fmt.Println("🔑 Using existing key.")
 	}
 
 	// Upload public key to server's authorized_keys

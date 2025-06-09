@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+
 	"github.com/Rhyanz46/tunneling/commands" // Corrected import path
 )
 
@@ -41,11 +42,11 @@ func main() {
 		commands.HandleStopCommand(tm, os.Args)
 	case "add":
 		commands.HandleAddCommand(tm, os.Args)
-	case "remove":
+	case "remove", "rm":
 		commands.HandleRemoveCommand(tm, os.Args)
-	case "list":
+	case "list", "ls":
 		commands.HandleListCommand(tm, os.Args)
-	case "status":
+	case "status", "stts":
 		commands.HandleStatusCommand(tm, os.Args)
 	case "login":
 		commands.HandleLoginCommand(tm, os.Args)
